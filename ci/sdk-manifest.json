@@ -1,4 +1,13 @@
 {
+  "openwrt": {
+    "aarch64_generic": "",
+    "x86_64": "",
+    "i386_pentium4": "",
+    "arm_cortex-a7_neon-vfpv4": "",
+    "arm_cortex-a53": "",
+    "arm_arm1176jzf-s_vfp": "",
+    "mipsel_24kc": ""
+  },
   "lean": {
     "aarch64_generic": "",
     "x86_64": "",

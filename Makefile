@@ -38,11 +38,16 @@ ifneq ($(CONFIG_USE_APK),)
 endif
 
 NODE_PREBUILT_RESOLVED_FLAVOR:=$(if $(filter auto,$(NODE_PREBUILT_FLAVOR)),$(NODE_PREBUILT_AUTO_FLAVOR),$(NODE_PREBUILT_FLAVOR))
+NODE_PREBUILT_RESOLVED_FALLBACK_FLAVOR:=$(if $(filter auto,$(NODE_PREBUILT_FALLBACK_FLAVOR)),$(if $(filter lean,$(NODE_PREBUILT_RESOLVED_FLAVOR)),openwrt,),$(NODE_PREBUILT_FALLBACK_FLAVOR))
 NODE_PREBUILT_RESOLVED_FORMAT:=$(if $(filter auto,$(NODE_PREBUILT_FORMAT)),$(NODE_PREBUILT_AUTO_FORMAT),$(NODE_PREBUILT_FORMAT))
 NODE_PREBUILT_NODE_FILE:=node_$(PKG_BUILD_VERSION)_$(ARCH_PACKAGES)_$(NODE_PREBUILT_RESOLVED_FLAVOR).$(NODE_PREBUILT_RESOLVED_FORMAT)
 NODE_PREBUILT_NPM_FILE:=node-npm_$(PKG_BUILD_VERSION)_$(ARCH_PACKAGES)_$(NODE_PREBUILT_RESOLVED_FLAVOR).$(NODE_PREBUILT_RESOLVED_FORMAT)
 NODE_PREBUILT_NODE_URL:=$(NODE_PREBUILT_BASE_URL)/$(NODE_PREBUILT_NODE_FILE)
 NODE_PREBUILT_NPM_URL:=$(NODE_PREBUILT_BASE_URL)/$(NODE_PREBUILT_NPM_FILE)
+NODE_PREBUILT_FALLBACK_NODE_FILE:=$(if $(NODE_PREBUILT_RESOLVED_FALLBACK_FLAVOR),node_$(PKG_BUILD_VERSION)_$(ARCH_PACKAGES)_$(NODE_PREBUILT_RESOLVED_FALLBACK_FLAVOR).$(NODE_PREBUILT_RESOLVED_FORMAT))
+NODE_PREBUILT_FALLBACK_NPM_FILE:=$(if $(NODE_PREBUILT_RESOLVED_FALLBACK_FLAVOR),node-npm_$(PKG_BUILD_VERSION)_$(ARCH_PACKAGES)_$(NODE_PREBUILT_RESOLVED_FALLBACK_FLAVOR).$(NODE_PREBUILT_RESOLVED_FORMAT))
+NODE_PREBUILT_FALLBACK_NODE_URL:=$(if $(NODE_PREBUILT_FALLBACK_NODE_FILE),$(NODE_PREBUILT_BASE_URL)/$(NODE_PREBUILT_FALLBACK_NODE_FILE))
+NODE_PREBUILT_FALLBACK_NPM_URL:=$(if $(NODE_PREBUILT_FALLBACK_NPM_FILE),$(NODE_PREBUILT_BASE_URL)/$(NODE_PREBUILT_FALLBACK_NPM_FILE))
 
 include $(INCLUDE_DIR)/host-build.mk
 include $(INCLUDE_DIR)/package.mk
@@ -64,8 +69,8 @@ define Package/node/description
   package ecosystem, npm, is the largest ecosystem of open source libraries in the world.
 
   This packages-25.12 branch downloads user-managed prebuilt node packages from GitHub
-  Releases instead of relying on OpenWrt official binary packages. Both lean and
-  ImmortalWrt, as well as ipk and apk payloads, are supported.
+  Releases instead of relying on OpenWrt official binary packages. Both lean,
+  OpenWrt and ImmortalWrt, as well as ipk and apk payloads, are supported.
 endef
 
 define Package/node-npm
@@ -90,9 +95,20 @@ ifeq ($(HOST_ARCH),aarch64)
 endif
 
 define NodePrebuilt/Fetch
-	[ -f $(NODE_PREBUILT_DL_DIR)/$(1) ] || \
+	if [ -f $(NODE_PREBUILT_DL_DIR)/$(1) ]; then \
+		echo "Using cached asset $(1)"; \
+	elif curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 \
+		-o $(NODE_PREBUILT_DL_DIR)/$(1) $(2); then \
+		echo "Fetched primary asset $(3)"; \
+	elif [ -n "$(4)" ]; then \
+		echo "Primary asset $(3) unavailable, trying fallback $(5)"; \
+		rm -f $(NODE_PREBUILT_DL_DIR)/$(1); \
 		curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 \
-			-o $(NODE_PREBUILT_DL_DIR)/$(1) $(2)
+			-o $(NODE_PREBUILT_DL_DIR)/$(1) $(4); \
+	else \
+		echo "Failed to fetch primary asset $(3) and no fallback is configured"; \
+		exit 1; \
+	fi
 endef
 
 define NodePrebuilt/Extract
@@ -130,9 +146,9 @@ define Build/Compile
 	$(INSTALL_DIR) $(NODE_PREBUILT_NODE_DIR) $(NODE_PREBUILT_NPM_DIR) \
 		$(NODE_PREBUILT_NODE_ARCHIVE_DIR) $(NODE_PREBUILT_NPM_ARCHIVE_DIR)
 	echo "Using prebuilt node assets from $(NODE_PREBUILT_BASE_URL) for $(ARCH_PACKAGES)"
-	echo "Resolved flavor=$(NODE_PREBUILT_RESOLVED_FLAVOR) format=$(NODE_PREBUILT_RESOLVED_FORMAT)"
-	$(call NodePrebuilt/Fetch,$(NODE_PREBUILT_NODE_FILE),$(NODE_PREBUILT_NODE_URL))
-	$(call NodePrebuilt/Fetch,$(NODE_PREBUILT_NPM_FILE),$(NODE_PREBUILT_NPM_URL))
+	echo "Resolved flavor=$(NODE_PREBUILT_RESOLVED_FLAVOR) fallback=$(NODE_PREBUILT_RESOLVED_FALLBACK_FLAVOR) format=$(NODE_PREBUILT_RESOLVED_FORMAT)"
+	$(call NodePrebuilt/Fetch,$(NODE_PREBUILT_NODE_FILE),$(NODE_PREBUILT_NODE_URL),$(NODE_PREBUILT_NODE_FILE),$(NODE_PREBUILT_FALLBACK_NODE_URL),$(NODE_PREBUILT_FALLBACK_NODE_FILE))
+	$(call NodePrebuilt/Fetch,$(NODE_PREBUILT_NPM_FILE),$(NODE_PREBUILT_NPM_URL),$(NODE_PREBUILT_NPM_FILE),$(NODE_PREBUILT_FALLBACK_NPM_URL),$(NODE_PREBUILT_FALLBACK_NPM_FILE))
 	$(call NodePrebuilt/Extract,$(NODE_PREBUILT_DL_DIR)/$(NODE_PREBUILT_NODE_FILE),$(NODE_PREBUILT_NODE_DIR),$(NODE_PREBUILT_NODE_ARCHIVE_DIR))
 	$(call NodePrebuilt/Extract,$(NODE_PREBUILT_DL_DIR)/$(NODE_PREBUILT_NPM_FILE),$(NODE_PREBUILT_NPM_DIR),$(NODE_PREBUILT_NPM_ARCHIVE_DIR))
 endef
