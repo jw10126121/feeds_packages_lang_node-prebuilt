@@ -1,0 +1,10 @@
+# Keep this file in sync with the release assets you publish for packages-25.12.
+
+NODE_PREBUILT_REPO?=jw10126121/feeds_packages_lang_node-prebuilt
+NODE_UPSTREAM_VERSION?=22.17.0
+NODE_PREBUILT_RELEASE?=1
+NODE_PREBUILT_FLAVOR?=auto
+NODE_PREBUILT_FORMAT?=auto
+NODE_PREBUILT_VERSION?=$(NODE_UPSTREAM_VERSION)-r$(NODE_PREBUILT_RELEASE)
+NODE_PREBUILT_TAG?=packages-25.12-node-v$(NODE_PREBUILT_VERSION)
+NODE_PREBUILT_BASE_URL?=https://github.com/$(NODE_PREBUILT_REPO)/releases/download/$(NODE_PREBUILT_TAG)

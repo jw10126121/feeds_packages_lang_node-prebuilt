@@ -6,12 +6,14 @@
 #
 
 include $(TOPDIR)/rules.mk
+include $(CURDIR)/prebuilt.mk
 
 PKG_NAME:=node
-PKG_BASE:=packages-24.10
-PKG_VERSION:=$(shell curl -s https://downloads.openwrt.org/releases/$(PKG_BASE)/aarch64_generic/packages/Packages | grep -oP '(?<=Filename: node_)\d+\.\d+\.\d+-r\d+')
-PKG_BUILD_VERSION:=$(shell curl -s https://downloads.openwrt.org/releases/$(PKG_BASE)/$(ARCH_PACKAGES)/packages/Packages | grep -oP '(?<=Filename: node_)\d+\.\d+\.\d+-r\d+')
-PKG_MAJOR_VERSION:=v$(shell echo $(PKG_BUILD_VERSION) | sed 's/-.*//')
+PKG_BASE:=packages-25.12
+PKG_VERSION:=$(NODE_UPSTREAM_VERSION)
+PKG_RELEASE:=$(NODE_PREBUILT_RELEASE)
+PKG_BUILD_VERSION:=$(NODE_PREBUILT_VERSION)
+PKG_MAJOR_VERSION:=v$(NODE_UPSTREAM_VERSION)
 
 PKG_MAINTAINER:=Hirokazu MORIKAWA <morikw2@gmail.com>, Adrian Panella <ianchi74@outlook.com>
 PKG_LICENSE:=MIT
@@ -19,6 +21,28 @@ PKG_LICENSE_FILES:=LICENSE
 PKG_CPE_ID:=cpe:/a:nodejs:node.js
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_BUILD_VERSION)
+NODE_PREBUILT_DL_DIR:=$(DL_DIR)/$(PKG_NAME)-prebuilt/$(PKG_BASE)
+NODE_PREBUILT_NODE_DIR:=$(PKG_BUILD_DIR)/node
+NODE_PREBUILT_NPM_DIR:=$(PKG_BUILD_DIR)/node-npm
+NODE_PREBUILT_NODE_ARCHIVE_DIR:=$(PKG_BUILD_DIR)/archive-node
+NODE_PREBUILT_NPM_ARCHIVE_DIR:=$(PKG_BUILD_DIR)/archive-node-npm
+NODE_PREBUILT_AUTO_FLAVOR:=lean
+NODE_PREBUILT_AUTO_FORMAT:=ipk
+
+ifneq ($(filter ImmortalWrt,$(VERSION_DIST) $(CONFIG_VERSION_DIST)),)
+  NODE_PREBUILT_AUTO_FLAVOR:=immortalwrt
+endif
+
+ifneq ($(CONFIG_USE_APK),)
+  NODE_PREBUILT_AUTO_FORMAT:=apk
+endif
+
+NODE_PREBUILT_RESOLVED_FLAVOR:=$(if $(filter auto,$(NODE_PREBUILT_FLAVOR)),$(NODE_PREBUILT_AUTO_FLAVOR),$(NODE_PREBUILT_FLAVOR))
+NODE_PREBUILT_RESOLVED_FORMAT:=$(if $(filter auto,$(NODE_PREBUILT_FORMAT)),$(NODE_PREBUILT_AUTO_FORMAT),$(NODE_PREBUILT_FORMAT))
+NODE_PREBUILT_NODE_FILE:=node_$(PKG_BUILD_VERSION)_$(ARCH_PACKAGES)_$(NODE_PREBUILT_RESOLVED_FLAVOR).$(NODE_PREBUILT_RESOLVED_FORMAT)
+NODE_PREBUILT_NPM_FILE:=node-npm_$(PKG_BUILD_VERSION)_$(ARCH_PACKAGES)_$(NODE_PREBUILT_RESOLVED_FLAVOR).$(NODE_PREBUILT_RESOLVED_FORMAT)
+NODE_PREBUILT_NODE_URL:=$(NODE_PREBUILT_BASE_URL)/$(NODE_PREBUILT_NODE_FILE)
+NODE_PREBUILT_NPM_URL:=$(NODE_PREBUILT_BASE_URL)/$(NODE_PREBUILT_NPM_FILE)
 
 include $(INCLUDE_DIR)/host-build.mk
 include $(INCLUDE_DIR)/package.mk
@@ -37,13 +61,11 @@ endef
 define Package/node/description
   Node.js® is a JavaScript runtime built on Chrome's V8 JavaScript engine. Node.js uses
   an event-driven, non-blocking I/O model that makes it lightweight and efficient. Node.js'
-   package ecosystem, npm, is the largest ecosystem of open source libraries in the world.
+  package ecosystem, npm, is the largest ecosystem of open source libraries in the world.
 
-  *** The following preparations must be made on the host side. ***
-      1. gcc 10.1 or higher is required.
-      2. To build a 32-bit target, gcc-multilib, g++-multilib are required.
-      3. Requires libatomic package. (If necessary, install the 32-bit library at the same time.)
-     ex) sudo apt-get install gcc-multilib g++-multilib
+  This packages-25.12 branch downloads user-managed prebuilt node packages from GitHub
+  Releases instead of relying on OpenWrt official binary packages. Both lean and
+  ImmortalWrt, as well as ipk and apk payloads, are supported.
 endef
 
 define Package/node-npm
@@ -67,45 +89,67 @@ ifeq ($(HOST_ARCH),aarch64)
 	NODE_ARCH:=arm64
 endif
 
+define NodePrebuilt/Fetch
+	[ -f $(NODE_PREBUILT_DL_DIR)/$(1) ] || \
+		curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 \
+			-o $(NODE_PREBUILT_DL_DIR)/$(1) $(2)
+endef
+
+define NodePrebuilt/Extract
+	rm -rf $(2) $(3)
+	$(INSTALL_DIR) $(2) $(3)
+	if [ "$(NODE_PREBUILT_RESOLVED_FORMAT)" = "ipk" ]; then \
+		cd $(3) && ar x $(1); \
+		data_archive=""; \
+		for candidate in data.tar.gz data.tar.xz data.tar.zst data.tar; do \
+			if [ -f "$(3)/$$candidate" ]; then \
+				data_archive="$$candidate"; \
+				break; \
+			fi; \
+		done; \
+		[ -n "$$data_archive" ]; \
+		cd $(2) && $(TAR) -xf "$(3)/$$data_archive"; \
+	else \
+		$(TAR) -xf $(1) -C $(2); \
+	fi
+endef
+
 define Host/Compile
-	( \
-		pushd $(HOST_BUILD_DIR) ; \
-		$(RM) node-v* ; \
-		wget https://nodejs.org/dist/$(PKG_MAJOR_VERSION)/node-$(PKG_MAJOR_VERSION)-linux-$(NODE_ARCH).tar.xz ; \
-		$(TAR) -xf node-$(PKG_MAJOR_VERSION)-linux-$(NODE_ARCH).tar.xz ; \
-		popd ; \
-	)
+	$(INSTALL_DIR) $(HOST_BUILD_DIR)
+	rm -rf $(HOST_BUILD_DIR)/node-v*
+	cd $(HOST_BUILD_DIR) && \
+		curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 \
+			-O https://nodejs.org/dist/$(PKG_MAJOR_VERSION)/node-$(PKG_MAJOR_VERSION)-linux-$(NODE_ARCH).tar.xz && \
+		$(TAR) -xf node-$(PKG_MAJOR_VERSION)-linux-$(NODE_ARCH).tar.xz
 endef
 
 define Build/Compile
-	( \
-		echo $(ARCH_PACKAGES) ; \
-		pushd $(PKG_BUILD_DIR) ; \
-		wget https://downloads.openwrt.org/releases/$(PKG_BASE)/$(ARCH_PACKAGES)/packages/node_$(PKG_BUILD_VERSION)_$(ARCH_PACKAGES).ipk ; \
-		$(TAR) -zxf node_$(PKG_BUILD_VERSION)_$(ARCH_PACKAGES).ipk ; \
-		$(TAR) -zxf data.tar.gz ; \
-		rm -f data.tar.gz control.tar.gz debian-binary ; \
-		wget https://downloads.openwrt.org/releases/$(PKG_BASE)/$(ARCH_PACKAGES)/packages/node-npm_$(PKG_BUILD_VERSION)_$(ARCH_PACKAGES).ipk ; \
-		$(TAR) -zxf node-npm_$(PKG_BUILD_VERSION)_$(ARCH_PACKAGES).ipk ; \
-		$(TAR) -zxf data.tar.gz ; \
-		rm -f data.tar.gz control.tar.gz debian-binary ; \
-		popd ; \
-	)
+	$(INSTALL_DIR) $(NODE_PREBUILT_DL_DIR)
+	rm -rf $(NODE_PREBUILT_NODE_DIR) $(NODE_PREBUILT_NPM_DIR) \
+		$(NODE_PREBUILT_NODE_ARCHIVE_DIR) $(NODE_PREBUILT_NPM_ARCHIVE_DIR)
+	$(INSTALL_DIR) $(NODE_PREBUILT_NODE_DIR) $(NODE_PREBUILT_NPM_DIR) \
+		$(NODE_PREBUILT_NODE_ARCHIVE_DIR) $(NODE_PREBUILT_NPM_ARCHIVE_DIR)
+	echo "Using prebuilt node assets from $(NODE_PREBUILT_BASE_URL) for $(ARCH_PACKAGES)"
+	echo "Resolved flavor=$(NODE_PREBUILT_RESOLVED_FLAVOR) format=$(NODE_PREBUILT_RESOLVED_FORMAT)"
+	$(call NodePrebuilt/Fetch,$(NODE_PREBUILT_NODE_FILE),$(NODE_PREBUILT_NODE_URL))
+	$(call NodePrebuilt/Fetch,$(NODE_PREBUILT_NPM_FILE),$(NODE_PREBUILT_NPM_URL))
+	$(call NodePrebuilt/Extract,$(NODE_PREBUILT_DL_DIR)/$(NODE_PREBUILT_NODE_FILE),$(NODE_PREBUILT_NODE_DIR),$(NODE_PREBUILT_NODE_ARCHIVE_DIR))
+	$(call NodePrebuilt/Extract,$(NODE_PREBUILT_DL_DIR)/$(NODE_PREBUILT_NPM_FILE),$(NODE_PREBUILT_NPM_DIR),$(NODE_PREBUILT_NPM_ARCHIVE_DIR))
 endef
 
 define Package/node/install
 	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/node $(1)/usr/bin/
+	$(INSTALL_BIN) $(NODE_PREBUILT_NODE_DIR)/usr/bin/node $(1)/usr/bin/
 endef
 
 define Package/node-npm/install
 	$(INSTALL_DIR) $(1)/usr/lib/node_modules/npm
-	$(CP) $(PKG_BUILD_DIR)/usr/lib/node_modules/npm/{package.json,LICENSE} \
-		$(1)/usr/lib/node_modules/npm/
-	$(CP) $(PKG_BUILD_DIR)/usr/lib/node_modules/npm/README.md \
-		$(1)/usr/lib/node_modules/npm/
-	$(CP) $(PKG_BUILD_DIR)/usr/lib/node_modules/npm/{node_modules,bin,lib} \
-		$(1)/usr/lib/node_modules/npm/
+	$(CP) $(NODE_PREBUILT_NPM_DIR)/usr/lib/node_modules/npm/package.json $(1)/usr/lib/node_modules/npm/
+	$(CP) $(NODE_PREBUILT_NPM_DIR)/usr/lib/node_modules/npm/LICENSE $(1)/usr/lib/node_modules/npm/
+	$(CP) $(NODE_PREBUILT_NPM_DIR)/usr/lib/node_modules/npm/README.md $(1)/usr/lib/node_modules/npm/
+	$(CP) $(NODE_PREBUILT_NPM_DIR)/usr/lib/node_modules/npm/node_modules $(1)/usr/lib/node_modules/npm/
+	$(CP) $(NODE_PREBUILT_NPM_DIR)/usr/lib/node_modules/npm/bin $(1)/usr/lib/node_modules/npm/
+	$(CP) $(NODE_PREBUILT_NPM_DIR)/usr/lib/node_modules/npm/lib $(1)/usr/lib/node_modules/npm/
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(LN) ../lib/node_modules/npm/bin/npm-cli.js $(1)/usr/bin/npm
 	$(LN) ../lib/node_modules/npm/bin/npx-cli.js $(1)/usr/bin/npx

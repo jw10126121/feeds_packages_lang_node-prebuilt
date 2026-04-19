@@ -1,0 +1,148 @@
+name: release-node-prebuilt
+
+on:
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: 预编译来源类型，lean 或 immortalwrt
+        required: true
+        default: lean
+        type: choice
+        options:
+          - lean
+          - immortalwrt
+      sdk_url:
+        description: lean / ImmortalWrt 25.12 SDK 下载地址
+        required: true
+        type: string
+      arch_packages:
+        description: ARCH_PACKAGES，例如 aarch64_generic
+        required: true
+        type: string
+      release_tag:
+        description: 需要上传到的 GitHub Release tag
+        required: true
+        type: string
+      upload_to_release:
+        description: 是否把构建产物上传到 release
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    env:
+      FLAVOR: ${{ inputs.flavor }}
+      SDK_URL: ${{ inputs.sdk_url }}
+      ARCH_PACKAGES: ${{ inputs.arch_packages }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
+            gettext git libncurses5-dev libssl-dev python3 python3-distutils \
+            rsync unzip zlib1g-dev file wget curl zstd
+
+      - name: Download and extract SDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$RUNNER_TEMP/sdk"
+          sdk_archive="$RUNNER_TEMP/sdk.tar"
+
+          case "$SDK_URL" in
+            *.tar.zst)
+              sdk_archive="$RUNNER_TEMP/sdk.tar.zst"
+              curl -fL "$SDK_URL" -o "$sdk_archive"
+              tar --zstd -xf "$sdk_archive" -C "$RUNNER_TEMP/sdk" --strip-components=1
+              ;;
+            *.tar.xz)
+              sdk_archive="$RUNNER_TEMP/sdk.tar.xz"
+              curl -fL "$SDK_URL" -o "$sdk_archive"
+              tar -xJf "$sdk_archive" -C "$RUNNER_TEMP/sdk" --strip-components=1
+              ;;
+            *.tar.gz|*.tgz)
+              sdk_archive="$RUNNER_TEMP/sdk.tar.gz"
+              curl -fL "$SDK_URL" -o "$sdk_archive"
+              tar -xzf "$sdk_archive" -C "$RUNNER_TEMP/sdk" --strip-components=1
+              ;;
+            *)
+              echo "Unsupported SDK archive format: $SDK_URL" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Inject package into SDK
+        working-directory: ${{ runner.temp }}/sdk
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p package/lang/node
+          rsync -a --delete \
+            --exclude .git \
+            --exclude dist \
+            "$GITHUB_WORKSPACE"/ package/lang/node/
+
+      - name: Build node and node-npm
+        working-directory: ${{ runner.temp }}/sdk
+        shell: bash
+        run: |
+          set -euxo pipefail
+          make defconfig
+          make package/lang/node/clean
+          make package/lang/node/compile -j"$(nproc)" V=s
+
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          find bin/packages -type f \( -name "node_*.ipk" -o -name "node_*.apk" -o -name "node-npm_*.ipk" -o -name "node-npm_*.apk" \) -print > "$RUNNER_TEMP/package-list.txt"
+
+          node_pkg="$(grep '/node_[^/]*\.\(ipk\|apk\)$' "$RUNNER_TEMP/package-list.txt" | grep "_${ARCH_PACKAGES}\." | head -n1)"
+          npm_pkg="$(grep '/node-npm_[^/]*\.\(ipk\|apk\)$' "$RUNNER_TEMP/package-list.txt" | grep "_${ARCH_PACKAGES}\." | head -n1)"
+
+          test -n "$node_pkg"
+          test -n "$npm_pkg"
+
+          pkg_ext="${node_pkg##*.}"
+          node_name="$(basename "$node_pkg")"
+          npm_name="$(basename "$npm_pkg")"
+          node_version_arch="${node_name%.*}"
+          npm_version_arch="${npm_name%.*}"
+
+          cp "$node_pkg" "$GITHUB_WORKSPACE/dist/${node_version_arch}_${FLAVOR}.${pkg_ext}"
+          cp "$npm_pkg" "$GITHUB_WORKSPACE/dist/${npm_version_arch}_${FLAVOR}.${pkg_ext}"
+
+          cd "$GITHUB_WORKSPACE/dist"
+          sha256sum * > SHA256SUMS
+          {
+            echo "flavor=$FLAVOR"
+            echo "sdk_url=$SDK_URL"
+            echo "arch_packages=$ARCH_PACKAGES"
+            echo "package_format=$pkg_ext"
+            echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > BUILD_INFO.txt
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-prebuilt-${{ inputs.flavor }}-${{ inputs.arch_packages }}
+          path: dist/*
+
+      - name: Upload to GitHub Release
+        if: ${{ inputs.upload_to_release }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          files: |
+            dist/*.apk
+            dist/*.ipk
+            dist/SHA256SUMS
+            dist/BUILD_INFO.txt
