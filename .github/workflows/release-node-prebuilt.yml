@@ -56,32 +56,47 @@ jobs:
           if flavor not in manifest:
               raise SystemExit(f"Flavor '{flavor}' not found in {manifest_path}")
 
-          entries = []
-          missing = []
-          for arch_packages, sdk_url in manifest[flavor].items():
-              if sdk_url:
-                  entries.append({
-                      "arch_packages": arch_packages,
-                      "sdk_url": sdk_url,
-                  })
-              else:
-                  missing.append(arch_packages)
-
-          if missing:
+          entries = manifest[flavor]
+          if not isinstance(entries, list):
               raise SystemExit(
-                  "Please fill ci/sdk-manifest.json for flavor '%s'. Missing SDK URLs: %s"
-                  % (flavor, ", ".join(missing))
+                  f"Flavor '{flavor}' in {manifest_path} must be a JSON array"
               )
 
           if not entries:
               raise SystemExit(
-                  f"No SDK URLs configured for flavor '{flavor}' in {manifest_path}"
+                  f"No SDK targets configured for flavor '{flavor}' in {manifest_path}"
+              )
+
+          normalized = []
+          missing = []
+          for entry in entries:
+              if not isinstance(entry, dict):
+                  raise SystemExit(
+                      f"Each entry under flavor '{flavor}' must be an object"
+                  )
+              entry_id = entry.get("id", "").strip()
+              target = entry.get("target", "").strip()
+              sdk_url = entry.get("sdk_url", "").strip()
+
+              if not entry_id or not target or not sdk_url:
+                  missing.append(entry)
+                  continue
+
+              normalized.append({
+                  "id": entry_id,
+                  "target": target,
+                  "sdk_url": sdk_url,
+              })
+
+          if missing:
+              raise SystemExit(
+                  f"Please fill id/target/sdk_url for every '{flavor}' entry in {manifest_path}"
               )
 
           output_path = os.environ["GITHUB_OUTPUT"]
           with open(output_path, "a", encoding="utf-8") as f:
-              f.write("matrix=%s\n" % json.dumps({"include": entries}, separators=(",", ":")))
-              f.write("count=%d\n" % len(entries))
+              f.write("matrix=%s\n" % json.dumps({"include": normalized}, separators=(",", ":")))
+              f.write("count=%d\n" % len(normalized))
           PY
 
   build:
@@ -93,7 +108,8 @@ jobs:
     env:
       FLAVOR: ${{ inputs.flavor }}
       SDK_URL: ${{ matrix.sdk_url }}
-      ARCH_PACKAGES: ${{ matrix.arch_packages }}
+      TARGET_ID: ${{ matrix.id }}
+      TARGET_PATH: ${{ matrix.target }}
       RELEASE_TAG: ${{ inputs.release_tag }}
 
     steps:
@@ -160,8 +176,8 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/dist"
           find bin/packages -type f \( -name "node_*.ipk" -o -name "node_*.apk" -o -name "node-npm_*.ipk" -o -name "node-npm_*.apk" \) -print > "$RUNNER_TEMP/package-list.txt"
 
-          node_pkg="$(grep '/node_[^/]*\.\(ipk\|apk\)$' "$RUNNER_TEMP/package-list.txt" | grep "_${ARCH_PACKAGES}\." | head -n1)"
-          npm_pkg="$(grep '/node-npm_[^/]*\.\(ipk\|apk\)$' "$RUNNER_TEMP/package-list.txt" | grep "_${ARCH_PACKAGES}\." | head -n1)"
+          node_pkg="$(grep '/node_[^/]*\.\(ipk\|apk\)$' "$RUNNER_TEMP/package-list.txt" | head -n1)"
+          npm_pkg="$(grep '/node-npm_[^/]*\.\(ipk\|apk\)$' "$RUNNER_TEMP/package-list.txt" | head -n1)"
 
           test -n "$node_pkg"
           test -n "$npm_pkg"
@@ -171,6 +187,10 @@ jobs:
           npm_name="$(basename "$npm_pkg")"
           node_version_arch="${node_name%.*}"
           npm_version_arch="${npm_name%.*}"
+          actual_arch="$(echo "$node_name" | sed -E 's/^node_[^_]+_(.+)\.(ipk|apk)$/\1/')"
+          npm_arch="$(echo "$npm_name" | sed -E 's/^node-npm_[^_]+_(.+)\.(ipk|apk)$/\1/')"
+
+          test "$actual_arch" = "$npm_arch"
 
           cp "$node_pkg" "$GITHUB_WORKSPACE/dist/${node_version_arch}_${FLAVOR}.${pkg_ext}"
           cp "$npm_pkg" "$GITHUB_WORKSPACE/dist/${npm_version_arch}_${FLAVOR}.${pkg_ext}"
@@ -180,7 +200,9 @@ jobs:
           {
             echo "flavor=$FLAVOR"
             echo "sdk_url=$SDK_URL"
-            echo "arch_packages=$ARCH_PACKAGES"
+            echo "target_id=$TARGET_ID"
+            echo "target_path=$TARGET_PATH"
+            echo "arch_packages=$actual_arch"
             echo "package_format=$pkg_ext"
             echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > BUILD_INFO.txt
@@ -188,7 +210,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: node-prebuilt-${{ inputs.flavor }}-${{ matrix.arch_packages }}
+          name: node-prebuilt-${{ inputs.flavor }}-${{ matrix.id }}
           path: dist/*
 
       - name: Upload to GitHub Release

@@ -70,7 +70,7 @@ make package/lang/node/compile V=s \
 ## 维护方式
 
 1. 发布新的预编译包前，先更新 [prebuilt.mk](prebuilt.mk)
-2. 在 [ci/sdk-manifest.json](ci/sdk-manifest.json) 里，为 `openwrt` / `immortalwrt` 的每个主流 `ARCH_PACKAGES` 填一个可用的代表性 SDK URL
+2. 在 [ci/sdk-manifest.json](ci/sdk-manifest.json) 里，为 `openwrt` / `immortalwrt` 维护一组“代表性 target SDK URL”清单
 3. 先运行 workflow 构建 `openwrt` / `immortalwrt` 预编译包
 4. 如果未来拿到 `lean` 自己的稳定 SDK，再补 `lean` 专用资产
 5. 确保 GitHub Releases 下的 tag 和文件名与 `prebuilt.mk` 对齐
@@ -80,33 +80,38 @@ make package/lang/node/compile V=s \
 
 workflow 不再要求你手工传 `arch_packages`，而是直接读取 [ci/sdk-manifest.json](ci/sdk-manifest.json)。
 
-当前默认主流 `ARCH_PACKAGES` 清单是：
+当前预置的 `openwrt` 主流 target / 目标包架构覆盖是：
 
-- `aarch64_generic`
-- `x86_64`
-- `i386_pentium4`
-- `arm_cortex-a7_neon-vfpv4`
-- `arm_cortex-a53`
-- `arm_arm1176jzf-s_vfp`
-- `mipsel_24kc`
+- `x86/64 -> x86_64`
+- `x86/generic -> i386_pentium4`
+- `armsr/armv8 -> aarch64_generic`
+- `ipq40xx/generic -> arm_cortex-a7_neon-vfpv4`
+- `sunxi/cortexa53 -> aarch64_cortex-a53`
+- `bcm27xx/bcm2708 -> arm_arm1176jzf-s_vfp`
+- `ramips/mt7620 -> mipsel_24kc`
 
 你后面如果还想扩展更多架构，直接在 `ci/sdk-manifest.json` 里继续加即可。
 
 ## SDK URL 说明
 
-`ARCH_PACKAGES` 本身不能唯一推出 SDK 下载地址，所以这里采用“每个主流 `ARCH_PACKAGES` 对应一个代表性 SDK URL”的维护方式。
+`ARCH_PACKAGES` 本身不能唯一推出 SDK 下载地址，所以这里改成“每个主流 target 对应一个代表性 SDK URL”的维护方式。
 
 也就是说，你需要在 `ci/sdk-manifest.json` 里手工维护类似这种映射关系：
 
-- `aarch64_generic -> 某个能产出 aarch64_generic 包的 25.12 SDK`
-- `x86_64 -> 某个能产出 x86_64 包的 25.12 SDK`
+- `x86/64 -> 某个能产出 x86_64 包的 25.12 SDK`
+- `ramips/mt7620 -> 某个能产出 mipsel_24kc 包的 25.12 SDK`
 
-只要这个 SDK 最终构建出来的包文件名后缀是目标 `ARCH_PACKAGES`，就可以作为该架构的代表性 SDK。
+workflow 会在构建完成后，直接从生成的 `node_*.ipk` / `node_*.apk` 文件名中自动识别真实 `ARCH_PACKAGES`，不再要求你手工把它写进 workflow 输入参数。
 
 对于 `openwrt` 官方 SDK，可以从 `https://downloads.openwrt.org/releases/25.12.0/targets/<target>/<subtarget>/` 这类目录获取。
-例如 `x86_64` 的官方 SDK 页面里就能看到：
+我已经帮你把当前 7 个官方 OpenWrt 25.12 SDK URL 预填进了 `ci/sdk-manifest.json`，并且在本地用 `curl -I` 验证过都返回了 `HTTP 200`。
+
+例如：
 
 - [openwrt-sdk-25.12.0-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst](https://downloads.openwrt.org/releases/25.12.0/targets/x86/64/openwrt-sdk-25.12.0-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst)
+- [openwrt-sdk-25.12.0-x86-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst](https://downloads.openwrt.org/releases/25.12.0/targets/x86/generic/openwrt-sdk-25.12.0-x86-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst)
+- [openwrt-sdk-25.12.0-armsr-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst](https://downloads.openwrt.org/releases/25.12.0/targets/armsr/armv8/openwrt-sdk-25.12.0-armsr-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst)
+- [openwrt-sdk-25.12.0-ipq40xx-generic_gcc-14.3.0_musl_eabi.Linux-x86_64.tar.zst](https://downloads.openwrt.org/releases/25.12.0/targets/ipq40xx/generic/openwrt-sdk-25.12.0-ipq40xx-generic_gcc-14.3.0_musl_eabi.Linux-x86_64.tar.zst)
 
 这说明官方 OpenWrt 是“能用的”，但它是按 `target/subtarget` 分散发布的，不是一个统一总 SDK 地址。
 
@@ -124,7 +129,8 @@ workflow 不再要求你手工传 `arch_packages`，而是直接读取 [ci/sdk-m
 它现在会：
 
 - 读取 [ci/sdk-manifest.json](ci/sdk-manifest.json)
-- 按 `openwrt`、`lean` 或 `immortalwrt` 批量遍历主流 `ARCH_PACKAGES`
-- 对每个架构下载对应 SDK、构建 `node` / `node-npm`
+- 按 `openwrt`、`lean` 或 `immortalwrt` 批量遍历 target SDK 清单
+- 对每个 target 下载对应 SDK、构建 `node` / `node-npm`
 - 自动识别产物是 `ipk` 还是 `apk`
+- 自动从产物文件名识别真实 `ARCH_PACKAGES`
 - 再按 `flavor + format + arch_packages` 规则重命名并上传到指定 release

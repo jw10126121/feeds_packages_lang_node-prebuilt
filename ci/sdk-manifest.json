@@ -1,29 +1,41 @@
 {
-  "openwrt": {
-    "aarch64_generic": "",
-    "x86_64": "",
-    "i386_pentium4": "",
-    "arm_cortex-a7_neon-vfpv4": "",
-    "arm_cortex-a53": "",
-    "arm_arm1176jzf-s_vfp": "",
-    "mipsel_24kc": ""
-  },
-  "lean": {
-    "aarch64_generic": "",
-    "x86_64": "",
-    "i386_pentium4": "",
-    "arm_cortex-a7_neon-vfpv4": "",
-    "arm_cortex-a53": "",
-    "arm_arm1176jzf-s_vfp": "",
-    "mipsel_24kc": ""
-  },
-  "immortalwrt": {
-    "aarch64_generic": "",
-    "x86_64": "",
-    "i386_pentium4": "",
-    "arm_cortex-a7_neon-vfpv4": "",
-    "arm_cortex-a53": "",
-    "arm_arm1176jzf-s_vfp": "",
-    "mipsel_24kc": ""
-  }
+  "openwrt": [
+    {
+      "id": "x86_64",
+      "target": "x86/64",
+      "sdk_url": "https://downloads.openwrt.org/releases/25.12.0/targets/x86/64/openwrt-sdk-25.12.0-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+    },
+    {
+      "id": "i386_pentium4",
+      "target": "x86/generic",
+      "sdk_url": "https://downloads.openwrt.org/releases/25.12.0/targets/x86/generic/openwrt-sdk-25.12.0-x86-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+    },
+    {
+      "id": "aarch64_generic",
+      "target": "armsr/armv8",
+      "sdk_url": "https://downloads.openwrt.org/releases/25.12.0/targets/armsr/armv8/openwrt-sdk-25.12.0-armsr-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+    },
+    {
+      "id": "arm_cortex-a7_neon-vfpv4",
+      "target": "ipq40xx/generic",
+      "sdk_url": "https://downloads.openwrt.org/releases/25.12.0/targets/ipq40xx/generic/openwrt-sdk-25.12.0-ipq40xx-generic_gcc-14.3.0_musl_eabi.Linux-x86_64.tar.zst"
+    },
+    {
+      "id": "aarch64_cortex-a53",
+      "target": "sunxi/cortexa53",
+      "sdk_url": "https://downloads.openwrt.org/releases/25.12.0/targets/sunxi/cortexa53/openwrt-sdk-25.12.0-sunxi-cortexa53_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+    },
+    {
+      "id": "arm_arm1176jzf-s_vfp",
+      "target": "bcm27xx/bcm2708",
+      "sdk_url": "https://downloads.openwrt.org/releases/25.12.0/targets/bcm27xx/bcm2708/openwrt-sdk-25.12.0-bcm27xx-bcm2708_gcc-14.3.0_musl_eabi.Linux-x86_64.tar.zst"
+    },
+    {
+      "id": "mipsel_24kc",
+      "target": "ramips/mt7620",
+      "sdk_url": "https://downloads.openwrt.org/releases/25.12.0/targets/ramips/mt7620/openwrt-sdk-25.12.0-ramips-mt7620_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+    }
+  ],
+  "lean": [],
+  "immortalwrt": []
 }
