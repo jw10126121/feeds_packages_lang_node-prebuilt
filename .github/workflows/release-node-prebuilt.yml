@@ -11,14 +11,6 @@ on:
         options:
           - lean
           - immortalwrt
-      sdk_url:
-        description: lean / ImmortalWrt 25.12 SDK 下载地址
-        required: true
-        type: string
-      arch_packages:
-        description: ARCH_PACKAGES，例如 aarch64_generic
-        required: true
-        type: string
       release_tag:
         description: 需要上传到的 GitHub Release tag
         required: true
@@ -33,12 +25,74 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  prepare:
     runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      count: ${{ steps.matrix.outputs.count }}
     env:
       FLAVOR: ${{ inputs.flavor }}
-      SDK_URL: ${{ inputs.sdk_url }}
-      ARCH_PACKAGES: ${{ inputs.arch_packages }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build matrix from SDK manifest
+        id: matrix
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          manifest_path = "ci/sdk-manifest.json"
+          flavor = os.environ["FLAVOR"]
+
+          with open(manifest_path, "r", encoding="utf-8") as f:
+              manifest = json.load(f)
+
+          if flavor not in manifest:
+              raise SystemExit(f"Flavor '{flavor}' not found in {manifest_path}")
+
+          entries = []
+          missing = []
+          for arch_packages, sdk_url in manifest[flavor].items():
+              if sdk_url:
+                  entries.append({
+                      "arch_packages": arch_packages,
+                      "sdk_url": sdk_url,
+                  })
+              else:
+                  missing.append(arch_packages)
+
+          if missing:
+              raise SystemExit(
+                  "Please fill ci/sdk-manifest.json for flavor '%s'. Missing SDK URLs: %s"
+                  % (flavor, ", ".join(missing))
+              )
+
+          if not entries:
+              raise SystemExit(
+                  f"No SDK URLs configured for flavor '{flavor}' in {manifest_path}"
+              )
+
+          output_path = os.environ["GITHUB_OUTPUT"]
+          with open(output_path, "a", encoding="utf-8") as f:
+              f.write("matrix=%s\n" % json.dumps({"include": entries}, separators=(",", ":")))
+              f.write("count=%d\n" % len(entries))
+          PY
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    env:
+      FLAVOR: ${{ inputs.flavor }}
+      SDK_URL: ${{ matrix.sdk_url }}
+      ARCH_PACKAGES: ${{ matrix.arch_packages }}
       RELEASE_TAG: ${{ inputs.release_tag }}
 
     steps:
@@ -133,7 +187,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: node-prebuilt-${{ inputs.flavor }}-${{ inputs.arch_packages }}
+          name: node-prebuilt-${{ inputs.flavor }}-${{ matrix.arch_packages }}
           path: dist/*
 
       - name: Upload to GitHub Release

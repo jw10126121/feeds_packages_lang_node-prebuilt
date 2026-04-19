@@ -2,6 +2,22 @@
 
 这个分支用于给 `lean` / `ImmortalWrt` 的 `25.12` 系列提供 `lang/node` 预编译支持，同时兼容 `ipk` / `apk` 两种上游预编译资产格式。
 
+## 先后顺序
+
+是的，应该先把你自己的 `node` / `node-npm` 预编译包构建并发布出来。
+
+原因很简单：
+
+- 这个 `packages-25.12` 分支本身只是“下载并重组你发布好的预编译包”
+- 它不是从源码现编 Node.js，也不是从 OpenWrt 官方二进制仓库兜底下载
+- 所以如果 release 里还没有对应架构的预编译资产，别的仓库即使接入这个分支，也没法成功编译 `lang/node`
+
+建议顺序：
+
+1. 先为 `lean` / `ImmortalWrt` 的主流 `ARCH_PACKAGES` 构建并发布 `node` / `node-npm`
+2. 确认 release 资产命名符合本文档约定
+3. 再在其他仓库里接入这个 `packages-25.12` 分支
+
 ## 用法
 
 ```sh
@@ -32,6 +48,8 @@ make package/lang/node/compile V=s \
 - `NODE_PREBUILT_FLAVOR=lean` 或 `immortalwrt`
 - `NODE_PREBUILT_FORMAT=ipk` 或 `apk`
 
+注意：这两个参数是“消费预编译包时”的覆盖手段，不是生成 release 资产时的架构批量配置。
+
 ## Release 约定
 
 - Release 仓库：`jw10126121/feeds_packages_lang_node-prebuilt`
@@ -49,8 +67,37 @@ make package/lang/node/compile V=s \
 ## 维护方式
 
 1. 发布新的预编译包前，先更新 [prebuilt.mk](prebuilt.mk)
-2. 确保 GitHub Releases 下的 tag 和文件名与 `prebuilt.mk` 对齐
-3. 其他项目接入时直接拉 `packages-25.12` 分支即可
+2. 在 [ci/sdk-manifest.json](ci/sdk-manifest.json) 里，为 `lean` / `immortalwrt` 的每个主流 `ARCH_PACKAGES` 填一个可用的代表性 SDK URL
+3. 运行 workflow 批量构建并上传所有主流架构的预编译包
+4. 确保 GitHub Releases 下的 tag 和文件名与 `prebuilt.mk` 对齐
+5. 其他项目接入时直接拉 `packages-25.12` 分支即可
+
+## 主流架构清单
+
+workflow 不再要求你手工传 `arch_packages`，而是直接读取 [ci/sdk-manifest.json](ci/sdk-manifest.json)。
+
+当前默认主流 `ARCH_PACKAGES` 清单是：
+
+- `aarch64_generic`
+- `x86_64`
+- `i386_pentium4`
+- `arm_cortex-a7_neon-vfpv4`
+- `arm_cortex-a53`
+- `arm_arm1176jzf-s_vfp`
+- `mipsel_24kc`
+
+你后面如果还想扩展更多架构，直接在 `ci/sdk-manifest.json` 里继续加即可。
+
+## SDK URL 说明
+
+`ARCH_PACKAGES` 本身不能唯一推出 SDK 下载地址，所以这里采用“每个主流 `ARCH_PACKAGES` 对应一个代表性 SDK URL”的维护方式。
+
+也就是说，你需要在 `ci/sdk-manifest.json` 里手工维护类似这种映射关系：
+
+- `aarch64_generic -> 某个能产出 aarch64_generic 包的 25.12 SDK`
+- `x86_64 -> 某个能产出 x86_64 包的 25.12 SDK`
+
+只要这个 SDK 最终构建出来的包文件名后缀是目标 `ARCH_PACKAGES`，就可以作为该架构的代表性 SDK。
 
 ## GitHub Actions
 
@@ -58,4 +105,10 @@ make package/lang/node/compile V=s \
 
 - [.github/workflows/release-node-prebuilt.yml](.github/workflows/release-node-prebuilt.yml)
 
-它的目标是基于你提供的 `lean` / `ImmortalWrt` `25.12` SDK 构建 `node` / `node-npm`，再按 `flavor + format` 规则重命名并上传到指定 release。
+它现在会：
+
+- 读取 [ci/sdk-manifest.json](ci/sdk-manifest.json)
+- 按 `lean` 或 `immortalwrt` 批量遍历主流 `ARCH_PACKAGES`
+- 对每个架构下载对应 SDK、构建 `node` / `node-npm`
+- 自动识别产物是 `ipk` 还是 `apk`
+- 再按 `flavor + format + arch_packages` 规则重命名并上传到指定 release
