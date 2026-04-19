@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       flavor:
-        description: 预编译来源类型，openwrt、lean 或 immortalwrt
+        description: 预编译来源类型，openwrt、lean 或 immortalwrt.
         required: true
         default: openwrt
         type: choice
